@@ -21,13 +21,12 @@ const razorpay = new Razorpay({
 // ===============================
 // @desc    Create Razorpay order
 // @route   POST /api/payment/razorpay/order
-// ===============================
 exports.createRazorpayOrder = async (req, res) => {
-  console.log("▶️ createRazorpayOrder called with body:", req.body);
+  console.log("▶️ Hit /razorpay/order, payload:", req.body);
 
   const userId = req.user?.id || null;
   const {
-    amount,
+    amount, // in rupees, as sent by client
     currency = "INR",
     receipt = `receipt_${Date.now()}`,
     totalDiscountAmount = 0,
@@ -35,12 +34,15 @@ exports.createRazorpayOrder = async (req, res) => {
     couponCode = "",
   } = req.body;
 
-  if (!amount) {
-    return res.status(400).json({ error: "Amount is required" });
+  // Validate and convert amount
+  const rupees = parseFloat(amount);
+  if (isNaN(rupees) || rupees <= 0) {
+    return res.status(400).json({ error: "Invalid or missing amount" });
   }
+  const paise = Math.round(rupees * 100); // must be integer
 
   const options = {
-    amount: amount * 100,
+    amount: paise,
     currency,
     receipt,
     payment_capture: 1,
@@ -53,9 +55,11 @@ exports.createRazorpayOrder = async (req, res) => {
   };
 
   try {
+    // 1️⃣ Create the order with Razorpay
     const order = await razorpay.orders.create(options);
     console.log("✅ Razorpay order created:", order);
 
+    // 2️⃣ Prepare values for DB logging
     const values = [
       order.id,
       order.amount,
@@ -68,7 +72,7 @@ exports.createRazorpayOrder = async (req, res) => {
       couponCode,
     ];
 
-    // Log insert
+    // 3️⃣ Log to razorpay_order_logs
     const logSql = `
       INSERT INTO razorpay_order_logs
         (razorpayOrderId, amount, currency, receipt, status,
@@ -81,7 +85,7 @@ exports.createRazorpayOrder = async (req, res) => {
         return res.status(500).json({ error: "Failed to log order" });
       }
 
-      // Main order insert
+      // 4️⃣ Save to razorpay_orders
       const orderSql = `
         INSERT INTO razorpay_orders
           (razorpayOrderId, amount, currency, receipt, status,
@@ -95,6 +99,7 @@ exports.createRazorpayOrder = async (req, res) => {
             .status(500)
             .json({ error: "Failed to save Razorpay order" });
         }
+        // 5️⃣ Respond with the created order
         return res
           .status(201)
           .json({ message: "Razorpay order created", order });
@@ -102,8 +107,9 @@ exports.createRazorpayOrder = async (req, res) => {
     });
   } catch (err) {
     console.error("🔥 Razorpay order error:", err);
-    // return the real SDK error message if available
-    return res.status(500).json({ error: err.description || err.message });
+    const msg =
+      err.error?.description || err.message || "Order creation failed";
+    return res.status(500).json({ error: msg });
   }
 };
 

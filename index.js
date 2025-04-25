@@ -20,10 +20,10 @@ const corsOption = {
   credentials: true,
 };
 
-app.use(
-  "/api/payment/razorpay/webhook",
-  express.raw({ type: "application/json" })
-);
+// app.use(
+//   "/api/payment/razorpay/webhook",
+//   express.raw({ type: "application/json" })
+// );
 app.use(express.json());
 app.use(cors(corsOption));
 
