@@ -110,7 +110,7 @@ exports.createProduct = (data, callback) => {
 // };
 
 exports.getAllProducts = (filters, callback) => {
-  let baseQuery = "SELECT * FROM Products WHERE 1=1";
+  let baseQuery = "SELECT * FROM products WHERE 1=1";
   const values = [];
 
   // Category filter
