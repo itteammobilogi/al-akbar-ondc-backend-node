@@ -71,39 +71,105 @@ exports.createProduct = (data, callback) => {
 
 //   db.query(baseQuery, values, callback);
 // };
+// exports.getAllProducts = (filters, callback) => {
+//   let baseQuery = "SELECT * FROM Products WHERE 1=1";
+//   const values = [];
+
+//   if (filters.search) {
+//     baseQuery += " AND (name LIKE ? OR brand LIKE ?)";
+//     const q = `%${filters.search}%`;
+//     values.push(q, q);
+//   }
+
+//   if (filters.categoryId) {
+//     baseQuery += " AND categoryId = ?";
+//     values.push(filters.categoryId);
+//   }
+
+//   if (filters.brand) {
+//     baseQuery += " AND brand = ?";
+//     values.push(filters.brand);
+//   }
+
+//   if (filters.offerType) {
+//     baseQuery += " AND offerType = ?";
+//     values.push(filters.offerType);
+//   }
+
+//   if (filters.isFeatured) {
+//     baseQuery += " AND isFeatured = ?";
+//     values.push(filters.isFeatured);
+//   }
+
+//   if (filters.exclusive) {
+//     baseQuery += " AND is_exclusive = ?";
+//     values.push(filters.exclusive);
+//   }
+
+//   db.query(baseQuery, values, callback);
+// };
+
 exports.getAllProducts = (filters, callback) => {
   let baseQuery = "SELECT * FROM Products WHERE 1=1";
   const values = [];
 
-  if (filters.search) {
-    baseQuery += " AND (name LIKE ? OR brand LIKE ?)";
-    const q = `%${filters.search}%`;
-    values.push(q, q);
-  }
-
+  // Category filter
   if (filters.categoryId) {
     baseQuery += " AND categoryId = ?";
     values.push(filters.categoryId);
   }
 
+  // Brand filter
   if (filters.brand) {
     baseQuery += " AND brand = ?";
     values.push(filters.brand);
   }
 
+  // Offer type filter
   if (filters.offerType) {
     baseQuery += " AND offerType = ?";
     values.push(filters.offerType);
   }
 
-  if (filters.isFeatured) {
+  // Featured products filter
+  if (typeof filters.isFeatured !== "undefined") {
     baseQuery += " AND isFeatured = ?";
     values.push(filters.isFeatured);
   }
 
-  if (filters.exclusive) {
+  // Exclusive products filter
+  if (typeof filters.exclusive !== "undefined") {
     baseQuery += " AND is_exclusive = ?";
     values.push(filters.exclusive);
+  }
+
+  // Price Range
+  if (filters.minPrice) {
+    baseQuery += " AND price >= ?";
+    values.push(filters.minPrice);
+  }
+  if (filters.maxPrice) {
+    baseQuery += " AND price <= ?";
+    values.push(filters.maxPrice);
+  }
+
+  // Sorting
+  if (filters.sortBy) {
+    switch (filters.sortBy) {
+      case "new":
+        baseQuery += " ORDER BY createdAt DESC";
+        break;
+      case "lowToHigh":
+        baseQuery += " ORDER BY price ASC";
+        break;
+      case "highToLow":
+        baseQuery += " ORDER BY price DESC";
+        break;
+      default:
+        baseQuery += " ORDER BY createdAt DESC";
+    }
+  } else {
+    baseQuery += " ORDER BY createdAt DESC";
   }
 
   db.query(baseQuery, values, callback);
