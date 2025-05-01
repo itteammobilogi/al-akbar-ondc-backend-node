@@ -19,9 +19,8 @@ const path = require("path");
 dotenv.config();
 
 const app = express();
-const corsOption = {
-  // origin: ["http://ondcapi.elloweb.com"],
-  origin: ["http://localhost:3000"],
+const corsOptions = {
+  origin: ["http://localhost:3000", "http://ondc.elloweb.com"], // include frontend origin(s)
   credentials: true,
 };
 
@@ -30,7 +29,7 @@ const corsOption = {
 //   express.raw({ type: "application/json" })
 // );
 app.use(express.json());
-app.use(cors(corsOption));
+app.use(cors(corsOptions));
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

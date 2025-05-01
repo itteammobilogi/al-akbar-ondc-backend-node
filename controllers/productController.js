@@ -70,13 +70,26 @@ exports.getAllProducts = (req, res) => {
   });
 };
 
-exports.getProductById = (req, res) => {
-  Product.getProductById(req.params.id, (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (results.length === 0)
+// exports.getProductById = (req, res) => {
+//   Product.getProductById(req.params.id, (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     if (results.length === 0)
+//       return res.status(404).json({ message: "Product not found" });
+//     res.json(results[0]);
+//   });
+// };
+
+exports.getProductById = async (req, res) => {
+  try {
+    const product = await Product.getProductById(req.params.id);
+    if (!product) {
       return res.status(404).json({ message: "Product not found" });
-    res.json(results[0]);
-  });
+    }
+    res.status(200).json(product);
+  } catch (err) {
+    console.error("Controller Error:", err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
 exports.updateProduct = (req, res) => {

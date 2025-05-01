@@ -125,7 +125,100 @@ const db = require("../config/db");
 const Order = require("../models/orderModel");
 
 // Create Order Controller
-exports.createOrder = (req, res) => {
+// exports.createOrder = (req, res) => {
+//   const {
+//     totalAmount,
+//     paymentMethod,
+//     paymentStatus,
+//     items,
+//     totalDiscountAmount,
+//     shippingCharge,
+//     couponCode,
+//     discountAmount,
+//     rto,
+//     phone,
+//     country,
+//     state,
+//     city,
+//     address,
+//     pincode,
+//   } = req.body;
+
+//   const userId = req.user.id;
+
+//   if (!totalAmount || !items || !Array.isArray(items) || items.length === 0) {
+//     return res.status(400).json({ error: "Missing or invalid fields" });
+//   }
+
+//   db.query(
+//     "SELECT name, email FROM users WHERE id = ?",
+//     [userId],
+//     (err, results) => {
+//       if (err) return res.status(500).json({ error: err.message });
+//       if (!results.length)
+//         return res.status(404).json({ error: "User not found" });
+
+//       const { name, email } = results[0];
+
+//       const orderData = {
+//         userId,
+//         name,
+//         email,
+//         totalAmount,
+//         paymentMethod: paymentMethod || "COD",
+//         paymentStatus: paymentStatus || "pending",
+//         orderStatus: 0, // Pending
+//         totalDiscountAmount: totalDiscountAmount || 0,
+//         shippingCharge: shippingCharge || 0,
+//         couponCode: couponCode || null,
+//         discountAmount: discountAmount || 0,
+//         rto: rto || false,
+//         phone,
+//         country,
+//         state,
+//         city,
+//         address,
+//         pincode,
+//       };
+
+//       // Create order
+//       Order.createOrder(orderData, items, async (err, result) => {
+//         if (err) return res.status(500).json({ error: err.message });
+
+//         // ✅ After creating order, mark coupon as used if applicable
+//         if (couponCode) {
+//           const updateCouponQuery = `
+//             UPDATE user_coupons uc
+//             INNER JOIN coupons c ON uc.couponId = c.id
+//             SET uc.isUsed = 1
+//             WHERE uc.userId = ? AND c.code = ? AND uc.isUsed = 0
+//           `;
+//           db.query(
+//             updateCouponQuery,
+//             [userId, couponCode],
+//             (couponErr, couponRes) => {
+//               if (couponErr) {
+//                 console.error(
+//                   "Failed to mark coupon as used:",
+//                   couponErr.message
+//                 );
+//                 // We will not fail the order if coupon update fails
+//               }
+//             }
+//           );
+//         }
+
+//         res.status(201).json({
+//           success: true,
+//           message: "🎉 Order placed successfully!",
+//           orderId: result.orderId,
+//         });
+//       });
+//     }
+//   );
+// };
+
+exports.createOrder = async (req, res) => {
   const {
     totalAmount,
     paymentMethod,
@@ -150,72 +243,72 @@ exports.createOrder = (req, res) => {
     return res.status(400).json({ error: "Missing or invalid fields" });
   }
 
-  db.query(
-    "SELECT name, email FROM users WHERE id = ?",
-    [userId],
-    (err, results) => {
+  try {
+    // Step 1: Get user info
+    const [users] = await db.query(
+      "SELECT name, email FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (!users.length) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const { name, email } = users[0];
+
+    // Step 2: Prepare order data
+    const orderData = {
+      userId,
+      name,
+      email,
+      totalAmount,
+      paymentMethod: paymentMethod || "COD",
+      paymentStatus: paymentStatus || "pending",
+      orderStatus: 0,
+      totalDiscountAmount: totalDiscountAmount || 0,
+      shippingCharge: shippingCharge || 0,
+      couponCode: couponCode || null,
+      discountAmount: discountAmount || 0,
+      rto: rto || false,
+      phone,
+      country,
+      state,
+      city,
+      address,
+      pincode,
+    };
+
+    // Step 3: Create order using orderModel
+    Order.createOrder(orderData, items, async (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      if (!results.length)
-        return res.status(404).json({ error: "User not found" });
 
-      const { name, email } = results[0];
-
-      const orderData = {
-        userId,
-        name,
-        email,
-        totalAmount,
-        paymentMethod: paymentMethod || "COD",
-        paymentStatus: paymentStatus || "pending",
-        orderStatus: 0, // Pending
-        totalDiscountAmount: totalDiscountAmount || 0,
-        shippingCharge: shippingCharge || 0,
-        couponCode: couponCode || null,
-        discountAmount: discountAmount || 0,
-        rto: rto || false,
-        phone,
-        country,
-        state,
-        city,
-        address,
-        pincode,
-      };
-
-      // Create order
-      Order.createOrder(orderData, items, async (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-
-        // ✅ After creating order, mark coupon as used if applicable
-        if (couponCode) {
+      // Step 4: Mark coupon as used if applicable
+      if (couponCode) {
+        try {
           const updateCouponQuery = `
             UPDATE user_coupons uc
             INNER JOIN coupons c ON uc.couponId = c.id
             SET uc.isUsed = 1
             WHERE uc.userId = ? AND c.code = ? AND uc.isUsed = 0
           `;
-          db.query(
-            updateCouponQuery,
-            [userId, couponCode],
-            (couponErr, couponRes) => {
-              if (couponErr) {
-                console.error(
-                  "Failed to mark coupon as used:",
-                  couponErr.message
-                );
-                // We will not fail the order if coupon update fails
-              }
-            }
-          );
+          await db.query(updateCouponQuery, [userId, couponCode]);
+        } catch (couponErr) {
+          console.error("⚠️ Failed to mark coupon as used:", couponErr.message);
+          // continue without failing the order
         }
+      }
 
-        res.status(201).json({
-          success: true,
-          message: "🎉 Order placed successfully!",
-          orderId: result.orderId,
-        });
+      // Step 5: Respond success
+      res.status(201).json({
+        success: true,
+        message: "🎉 Order placed successfully!",
+        orderId: result.orderId,
       });
-    }
-  );
+    });
+  } catch (err) {
+    console.error("Order creation error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 };
 
 // Fetch All Orders
