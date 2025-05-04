@@ -479,11 +479,46 @@ exports.createOrder = async (orderData, items, callback) => {
 };
 
 // Fetch all orders
-exports.getAllOrders = async (callback) => {
+exports.getAllOrders = async (filters, callback) => {
   try {
-    const [rows] = await db.query(
-      "SELECT * FROM orders ORDER BY createdAt DESC"
-    );
+    let query = `
+      SELECT o.*, u.name, u.email 
+      FROM orders o
+      JOIN users u ON o.userId = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (filters.orderStatus) {
+      query += " AND o.orderStatus = CAST(? AS UNSIGNED)";
+      params.push(filters.orderStatus);
+    }
+
+    if (filters.paymentStatus) {
+      query += " AND o.paymentStatus = ?";
+      params.push(filters.paymentStatus);
+    }
+
+    if (filters.startDate && filters.endDate) {
+      query += " AND DATE(o.createdAt) BETWEEN ? AND ?";
+      params.push(filters.startDate, filters.endDate);
+    }
+
+    if (filters.search) {
+      query += `
+        AND (
+          o.id LIKE ? OR
+          u.name LIKE ? OR
+          u.email LIKE ?
+        )
+      `;
+      const keyword = `%${filters.search}%`;
+      params.push(keyword, keyword, keyword);
+    }
+
+    query += " ORDER BY o.createdAt DESC";
+
+    const [rows] = await db.query(query, params);
     callback(null, rows);
   } catch (err) {
     callback(err);
@@ -510,7 +545,7 @@ exports.getOrderById = async (id, callback) => {
 };
 
 // Update order status
-exports.updateOrderStatus = async (id, status, callback) => {
+exports.changeOrderStatus = async (id, status, callback) => {
   try {
     const [result] = await db.query(
       "UPDATE orders SET orderStatus = ? WHERE id = ?",

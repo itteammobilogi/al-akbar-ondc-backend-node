@@ -3,6 +3,7 @@ const dotenv = require("dotenv");
 const db = require("./config/db");
 const cors = require("cors");
 const userRoutes = require("./routes/userRoutes");
+const adminRoutes = require("./routes/adminRoute");
 const productRoutes = require("./routes/productRoute");
 const categoryRoutes = require("./routes/categoryRoute");
 const brandRoutes = require("./routes/brandRoute");
@@ -13,14 +14,14 @@ const wishlistRoutes = require("./routes/wishListRoute");
 const couponRoutes = require("./routes/couponRoute");
 const contactUsRoutes = require("./routes/contactusRoute");
 const path = require("path");
-// const cron = require("node-cron");
-// const { rewardBirthdayCoupons } = require("./cronj/birthdayCoupon");
+const cron = require("node-cron");
+const { rewardBirthdayCoupons } = require("./cronj/birthdayCoupon");
 
 dotenv.config();
 
 const app = express();
 const corsOptions = {
-  origin: ["http://localhost:3000", "http://ondc.elloweb.com"], // include frontend origin(s)
+  origin: ["http://localhost:3000", "http://ondc.elloweb.com"],
   credentials: true,
 };
 
@@ -39,6 +40,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // });
 
 app.use("/api/users", userRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/contactus", contactUsRoutes);
 app.use("/api/products/cart", cartRoutes);
@@ -54,10 +56,10 @@ app.get("/", (req, res) => {
   res.send("E-commerce Backend Running");
 });
 
-// cron.schedule("0 0 * * *", () => {
-//   console.log("🔔 Running Birthday Coupon Cron Job...");
-//   rewardBirthdayCoupons();
-// });
+cron.schedule("0 0 * * *", () => {
+  console.log("🔔 Running Birthday Coupon Cron Job...");
+  rewardBirthdayCoupons();
+});
 
 // Start Server
 const PORT = process.env.PORT || 5000;

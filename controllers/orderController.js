@@ -123,6 +123,10 @@
 
 const db = require("../config/db");
 const Order = require("../models/orderModel");
+const sendMail = require("../utils/sendEmail");
+const {
+  generateOrderStatusEmail,
+} = require("../utils/generateOrderStatusEmail");
 
 // Create Order Controller
 // exports.createOrder = (req, res) => {
@@ -312,11 +316,28 @@ exports.createOrder = async (req, res) => {
 };
 
 // Fetch All Orders
+// exports.getAllOrders = (req, res) => {
+//   Order.getAllOrders((err, orders) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json(orders);
+//   });
+// };
 exports.getAllOrders = (req, res) => {
-  Order.getAllOrders((err, orders) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(orders);
-  });
+  const {
+    orderStatus, // orderStatus
+    paymentStatus,
+    startDate,
+    endDate,
+    search, // keyword (user name, email, or orderId)
+  } = req.query;
+
+  Order.getAllOrders(
+    { orderStatus, paymentStatus, startDate, endDate, search },
+    (err, orders) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(200).json({ orders });
+    }
+  );
 };
 
 // Get Order by ID
@@ -329,10 +350,61 @@ exports.getOrderById = (req, res) => {
 };
 
 // Update Order Status
+// exports.updateOrderStatus = (req, res) => {
+//   Order.updateOrderStatus(req.params.id, req.body.status, (err) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json({ message: "Order status updated successfully" });
+//   });
+// };
+
+// controllers/orderController.js
 exports.updateOrderStatus = (req, res) => {
-  Order.updateOrderStatus(req.params.id, req.body.status, (err) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Access denied" });
+  }
+
+  const orderId = req.params.id;
+  const status = req.body.status;
+
+  Order.changeOrderStatus(orderId, status, async (err) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: "Order status updated successfully" });
+
+    const [rows] = await db.query(
+      `SELECT o.id, o.userId, o.name, u.email, 
+              GROUP_CONCAT(p.name SEPARATOR ', ') AS productNames
+       FROM orders o
+       JOIN users u ON o.userId = u.id
+       JOIN order_items oi ON oi.orderId = o.id
+       JOIN products p ON oi.productId = p.id
+       WHERE o.id = ?
+       GROUP BY o.id`,
+      [orderId]
+    );
+
+    const order = rows[0];
+
+    if (order?.email) {
+      const statusText = {
+        0: "Pending",
+        1: "Processing",
+        2: "Shipped",
+        3: "Delivered",
+      };
+
+      await sendMail({
+        to: order.email,
+        subject: `Order #${orderId} is now ${statusText[status]}`,
+        html: generateOrderStatusEmail(
+          order.name || "Customer",
+          statusText[status],
+          order.productNames || "your items"
+        ),
+      });
+    }
+
+    res.json({
+      message: "Order status updated and email sent (if applicable).",
+    });
   });
 };
 

@@ -14,6 +14,7 @@ exports.createProduct = (req, res) => {
     colors,
     stock,
     isFeatured,
+    is_exclusive,
   } = req.body;
 
   // Convert uploaded images to array of URLs
@@ -46,11 +47,12 @@ exports.createProduct = (req, res) => {
     offerType: offerType || null,
     categoryId,
     brand: brand || "",
-    sizes: sizes ? JSON.parse(sizes) : [],
-    colors: colors ? JSON.parse(colors) : [],
+    sizes: sizes ? sizes.split(",").map((s) => s.trim()) : [],
+    colors: colors ? colors.split(",").map((c) => c.trim()) : [],
     images,
     stock: stock || 0,
-    isFeatured: isFeatured || false,
+    isFeatured: isFeatured ? 1 : 0,
+    is_exclusive: is_exclusive ? 1 : 0,
   };
 
   Product.createProduct(productData, (err, result) => {
@@ -110,6 +112,7 @@ exports.updateProduct = (req, res) => {
     colors,
     stock,
     isFeatured,
+    is_exclusive,
   } = req.body;
 
   const images = req.files
@@ -125,12 +128,18 @@ exports.updateProduct = (req, res) => {
   if (offerType) productData.offerType = offerType;
   if (categoryId) productData.categoryId = categoryId;
   if (brand) productData.brand = brand;
-  if (sizes) productData.sizes = JSON.stringify(JSON.parse(sizes));
-  if (colors) productData.colors = JSON.stringify(JSON.parse(colors));
+
+  if (sizes)
+    productData.sizes = JSON.stringify(sizes.split(",").map((s) => s.trim()));
+
+  if (colors)
+    productData.colors = JSON.stringify(colors.split(",").map((c) => c.trim()));
+
   if (images.length > 0) productData.images = JSON.stringify(images);
 
   if (stock) productData.stock = parseInt(stock);
-  if (typeof isFeatured !== "undefined") productData.isFeatured = isFeatured;
+  productData.isFeatured = isFeatured === "on" ? 1 : 0;
+  productData.is_exclusive = is_exclusive === "on" ? 1 : 0;
 
   Product.updateProduct(productId, productData, (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -144,8 +153,11 @@ exports.updateProduct = (req, res) => {
 };
 
 exports.deleteProduct = (req, res) => {
-  Product.deleteProduct(req.params.id, (err) => {
+  const productId = req.params.id;
+  if (!productId) return res.status(400).json({ error: "Missing product ID" });
+
+  Product.deleteProduct(productId, (err) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: "Product deleted" });
+    res.status(200).json({ message: "Product and its order items deleted." });
   });
 };

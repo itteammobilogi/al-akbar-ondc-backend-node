@@ -261,11 +261,12 @@ exports.createProduct = async (data, callback) => {
     images,
     stock,
     isFeatured,
+    is_exclusive,
   } = data;
 
   const query = `INSERT INTO products 
-    (name, description, price, discountPrice, offerType, categoryId, brand, sizes, colors, images, stock, isFeatured) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    (name, description, price, discountPrice, offerType, categoryId, brand, sizes, colors, images, stock, isFeatured,is_exclusive) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?, ?)`;
 
   try {
     const [result] = await db.query(query, [
@@ -281,6 +282,7 @@ exports.createProduct = async (data, callback) => {
       JSON.stringify(images),
       stock,
       isFeatured,
+      is_exclusive,
     ]);
     callback(null, result);
   } catch (err) {
@@ -339,11 +341,12 @@ exports.getAllProducts = async (filters, callback) => {
       case "highToLow":
         baseQuery += " ORDER BY price DESC";
         break;
+      case "idAsc":
+        baseQuery += " ORDER BY id ASC";
+        break;
       default:
         baseQuery += " ORDER BY createdAt DESC";
     }
-  } else {
-    baseQuery += " ORDER BY createdAt DESC";
   }
 
   try {
@@ -402,7 +405,12 @@ exports.updateProduct = async (id, data, callback) => {
 // DELETE
 exports.deleteProduct = async (id, callback) => {
   try {
+    // Delete dependent order items first
+    await db.query("DELETE FROM order_items WHERE productId = ?", [id]);
+
+    // Then delete the product
     const [result] = await db.query("DELETE FROM products WHERE id = ?", [id]);
+
     callback(null, result);
   } catch (err) {
     callback(err);
