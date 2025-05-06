@@ -11,10 +11,12 @@ router.post(
 );
 router.post("/cod", authenticate, paymentCtrl.handleCOD); // optional
 // router.post("/razorpay/webhook", paymentController.handleWebhook);
-router.post(
-  "/razorpay/webhook",
-  express.raw({ type: "application/json" }),
-  paymentCtrl.handleWebhook
-);
+// router.post(
+//   "/razorpay/webhook",
+//   express.raw({ type: "application/json" }),
+//   paymentCtrl.handleWebhook
+// );
+
+// router.post("/razorpay/webhook", paymentCtrl.handleWebhook);
 
 module.exports = router;

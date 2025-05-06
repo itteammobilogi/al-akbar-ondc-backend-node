@@ -16,6 +16,7 @@ const contactUsRoutes = require("./routes/contactusRoute");
 const path = require("path");
 const cron = require("node-cron");
 const { rewardBirthdayCoupons } = require("./cronj/birthdayCoupon");
+const paymentCtrl = require("./controllers/paymentController");
 
 dotenv.config();
 
@@ -24,6 +25,12 @@ const corsOptions = {
   origin: ["http://localhost:3000", "http://ondc.elloweb.com"],
   credentials: true,
 };
+
+app.post(
+  "/api/payment/razorpay/webhook",
+  express.raw({ type: "application/json" }),
+  paymentCtrl.handleWebhook
+);
 
 app.use(express.json());
 app.use(cors(corsOptions));

@@ -400,12 +400,16 @@ exports.verifyRazorpaySignature = async (req, res) => {
 exports.handleWebhook = async (req, res) => {
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   const signature = req.headers["x-razorpay-signature"];
-  const rawBody = req.body;
+  const bodyBuf = req.body; // raw Buffer from express.raw()
 
-  console.log(rawBody);
+  // Debug: log headers and first bytes of body
+  console.log("🔥 Headers Received:", req.headers);
+  console.log("🔥 Body Buffer (first 100 bytes):", bodyBuf.slice(0, 100));
+
+  // Compute expected HMAC using raw buffer
   const expectedSignature = crypto
     .createHmac("sha256", secret)
-    .update(JSON.stringify(rawBody))
+    .update(bodyBuf)
     .digest("hex");
 
   if (signature !== expectedSignature) {
@@ -415,102 +419,123 @@ exports.handleWebhook = async (req, res) => {
     return res.status(400).json({ success: false, error: "Invalid signature" });
   }
 
-  const event = rawBody.event;
-  console.log(event);
-  const entity =
-    rawBody.payload?.payment?.entity ||
-    rawBody.payload?.order?.entity ||
-    rawBody.payload?.refund?.entity;
+  // Parse the JSON once signature is verified
+  let payload;
+  try {
+    payload = JSON.parse(bodyBuf.toString("utf8"));
+  } catch (err) {
+    console.error("❌ Error parsing JSON:", err);
+    return res.status(400).json({ success: false, error: "Invalid JSON" });
+  }
 
-  const orderId = entity?.notes?.orderId || null;
+  const event = payload.event;
+  console.log(`📥 Event: ${event}`);
+
+  const entity =
+    payload.payload?.payment?.entity ||
+    payload.payload?.order?.entity ||
+    payload.payload?.refund?.entity;
+
+  const internalOrderId = entity?.notes?.orderId || null;
+  const userId = entity?.notes?.userId || null;
 
   try {
-    // Log webhook JSON
-    console.log(`📥 Received Razorpay event: ${event}`);
-    console.log("🧾 Webhook Payload:", JSON.stringify(rawBody, null, 2));
-
-    // Insert into webhook log table
+    // 1. Log to your webhook table
     await db.query(
-      `
-      INSERT INTO razorpay_webhook_logs
-      (userId, payment_id, razorpay_order_id, orderId, amount, currency, status, full_payload)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO razorpay_webhook_logs
+         (userId, payment_id, razorpay_order_id, orderId, amount, currency, status, full_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        entity?.notes?.userId || null,
-        entity.id || null,
-        entity.order_id || null,
-        orderId,
-        entity.amount || 0,
-        entity.currency || "INR",
-        entity.status || "unknown",
-        JSON.stringify(rawBody),
+        userId,
+        entity.id,
+        entity.order_id,
+        internalOrderId,
+        entity.amount,
+        entity.currency,
+        entity.status,
+        JSON.stringify(payload),
       ]
     );
 
-    if (event === "payment.captured") {
-      const orderId = entity.notes?.orderId;
-      const userId = entity.notes?.userId;
-
-      if (orderId) {
-        await db.query(
-          `UPDATE orders SET paymentStatus = 'paid', razorpay_payment_id = ? WHERE id = ?`,
-          [entity.id, orderId]
-        );
-        console.log(`✅ Order ${orderId} marked as PAID`);
-      }
-
-      if (userId) {
-        const [users] = await db.query(
-          `SELECT email, phone, name FROM users WHERE id = ?`,
-          [userId]
-        );
-        if (users.length) {
-          const user = users[0];
-          await sendEmail(
-            user.email,
-            "Payment Successful!",
-            `<p>Hi ${user.name}, your payment was successful.</p>`
+    // 2. Handle specific events
+    switch (event) {
+      case "payment.captured":
+        if (internalOrderId) {
+          await db.query(
+            `UPDATE orders
+               SET paymentStatus = 'paid',
+                   razorpay_payment_id = ?
+             WHERE id = ?`,
+            [entity.id, internalOrderId]
           );
-          await sendSMS(
-            user.phone,
-            `Hi ${user.name}, your payment was successful.`
-          );
-          console.log("📧 Email and SMS sent to user");
+          console.log(`✅ Order ${internalOrderId} marked as PAID`);
         }
-      }
-    }
+        if (userId) {
+          const [rows] = await db.query(
+            `SELECT email, phone, name FROM users WHERE id = ?`,
+            [userId]
+          );
+          if (rows.length) {
+            const user = rows[0];
+            await sendEmail(
+              user.email,
+              "Payment Successful!",
+              `<p>Hi ${user.name}, your payment of ₹${
+                entity.amount / 100
+              } was successful.</p>`
+            );
+            await sendSMS(
+              user.phone,
+              `Hi ${user.name}, your payment of ₹${
+                entity.amount / 100
+              } was successful.`
+            );
+            console.log("📧 Notification sent to user");
+          }
+        }
+        break;
 
-    if (event === "refund.created") {
-      await db.query(
-        `UPDATE orders SET paymentStatus = 'refunded' WHERE razorpay_order_id = ?`,
-        [entity.order_id]
-      );
-      console.log(`🔁 Refund created for Razorpay Order: ${entity.order_id}`);
-    }
+      case "payment.failed":
+        if (entity.order_id) {
+          await db.query(
+            `UPDATE orders SET paymentStatus = 'failed' WHERE razorpay_order_id = ?`,
+            [entity.order_id]
+          );
+          console.warn(`⚠️ Payment failed for Order ${entity.order_id}`);
+        }
+        break;
 
-    if (event === "payment.failed") {
-      await db.query(
-        `UPDATE orders SET paymentStatus = 'failed' WHERE razorpay_order_id = ?`,
-        [entity.order_id]
-      );
-      console.warn(`⚠️ Payment failed for Razorpay Order: ${entity.order_id}`);
-    }
+      case "payment.authorized":
+        if (entity.order_id) {
+          await db.query(
+            `UPDATE orders SET paymentStatus = 'authorized' WHERE razorpay_order_id = ?`,
+            [entity.order_id]
+          );
+          console.log(`🕒 Payment authorized for Order ${entity.order_id}`);
+        }
+        break;
 
-    if (event === "payment.authorized") {
-      await db.query(
-        `UPDATE orders SET paymentStatus = 'authorized' WHERE razorpay_order_id = ?`,
-        [entity.order_id]
-      );
-      console.log(
-        `🕒 Payment authorized for Razorpay Order: ${entity.order_id}`
-      );
+      case "refund.created":
+        if (entity.order_id) {
+          await db.query(
+            `UPDATE orders SET paymentStatus = 'refunded' WHERE razorpay_order_id = ?`,
+            [entity.order_id]
+          );
+          console.log(`🔁 Refund processed for Order ${entity.order_id}`);
+        }
+        break;
+
+      default:
+        console.log(`ℹ️ Unhandled event type: ${event}`);
     }
 
     console.log("✅ Webhook processed successfully");
-    res.status(200).json({ success: true });
+    return res.status(200).json({ success: true });
   } catch (err) {
     console.error("❌ Webhook handling error:", err);
-    res.status(500).json({ success: false, error: "Webhook DB error" });
+    return res
+      .status(500)
+      .json({ success: false, error: "Internal server error" });
   }
 };
 
