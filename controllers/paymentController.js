@@ -409,6 +409,8 @@ exports.handleWebhook = async (req, res) => {
 
   if (signature !== expectedSignature) {
     console.error("❌ Invalid webhook signature");
+    console.log("Received Signature:", signature);
+    console.log("Expected Signature:", expectedSignature);
     return res.status(400).json({ success: false, error: "Invalid signature" });
   }
 
@@ -418,17 +420,24 @@ exports.handleWebhook = async (req, res) => {
     rawBody.payload?.order?.entity ||
     rawBody.payload?.refund?.entity;
 
+  const orderId = entity?.notes?.orderId || null;
+
   try {
+    // Log webhook JSON
+    console.log(`📥 Received Razorpay event: ${event}`);
+    console.log("🧾 Webhook Payload:", JSON.stringify(rawBody, null, 2));
+
+    // Insert into webhook log table
     await db.query(
       `
       INSERT INTO razorpay_webhook_logs
       (userId, payment_id, razorpay_order_id, orderId, amount, currency, status, full_payload)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        null,
+        entity?.notes?.userId || null,
         entity.id || null,
         entity.order_id || null,
-        null,
+        orderId,
         entity.amount || 0,
         entity.currency || "INR",
         entity.status || "unknown",
@@ -436,9 +445,18 @@ exports.handleWebhook = async (req, res) => {
       ]
     );
 
-    // Send email/SMS on success
     if (event === "payment.captured") {
+      const orderId = entity.notes?.orderId;
       const userId = entity.notes?.userId;
+
+      if (orderId) {
+        await db.query(
+          `UPDATE orders SET paymentStatus = 'paid', razorpay_payment_id = ? WHERE id = ?`,
+          [entity.id, orderId]
+        );
+        console.log(`✅ Order ${orderId} marked as PAID`);
+      }
+
       if (userId) {
         const [users] = await db.query(
           `SELECT email, phone, name FROM users WHERE id = ?`,
@@ -446,31 +464,51 @@ exports.handleWebhook = async (req, res) => {
         );
         if (users.length) {
           const user = users[0];
-          const subject = "Payment Successful!";
-          const html = `<h2>Hi ${user.name},</h2><p>Your payment of ₹${
-            entity.amount / 100
-          } was successful.</p><p>Payment ID: ${entity.id}</p>`;
-          const smsText = `Hi ${user.name}, your payment of ₹${
-            entity.amount / 100
-          } was successful. Payment ID: ${entity.id}`;
-          await sendEmail(user.email, subject, html);
-          await sendSMS(user.phone, smsText);
-          console.log("✅ Email and SMS sent");
+          await sendEmail(
+            user.email,
+            "Payment Successful!",
+            `<p>Hi ${user.name}, your payment was successful.</p>`
+          );
+          await sendSMS(
+            user.phone,
+            `Hi ${user.name}, your payment was successful.`
+          );
+          console.log("📧 Email and SMS sent to user");
         }
       }
     }
 
     if (event === "refund.created") {
       await db.query(
-        `UPDATE orders SET status = 'refunded' WHERE razorpay_order_id = ?`,
+        `UPDATE orders SET paymentStatus = 'refunded' WHERE razorpay_order_id = ?`,
         [entity.order_id]
+      );
+      console.log(`🔁 Refund created for Razorpay Order: ${entity.order_id}`);
+    }
+
+    if (event === "payment.failed") {
+      await db.query(
+        `UPDATE orders SET paymentStatus = 'failed' WHERE razorpay_order_id = ?`,
+        [entity.order_id]
+      );
+      console.warn(`⚠️ Payment failed for Razorpay Order: ${entity.order_id}`);
+    }
+
+    if (event === "payment.authorized") {
+      await db.query(
+        `UPDATE orders SET paymentStatus = 'authorized' WHERE razorpay_order_id = ?`,
+        [entity.order_id]
+      );
+      console.log(
+        `🕒 Payment authorized for Razorpay Order: ${entity.order_id}`
       );
     }
 
+    console.log("✅ Webhook processed successfully");
     res.status(200).json({ success: true });
   } catch (err) {
     console.error("❌ Webhook handling error:", err);
-    res.status(500).json({ error: "Webhook DB error" });
+    res.status(500).json({ success: false, error: "Webhook DB error" });
   }
 };
 
