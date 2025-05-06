@@ -402,6 +402,7 @@ exports.handleWebhook = async (req, res) => {
   const signature = req.headers["x-razorpay-signature"];
   const rawBody = req.body;
 
+  console.log(rawBody);
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(JSON.stringify(rawBody))
@@ -415,6 +416,7 @@ exports.handleWebhook = async (req, res) => {
   }
 
   const event = rawBody.event;
+  console.log(event);
   const entity =
     rawBody.payload?.payment?.entity ||
     rawBody.payload?.order?.entity ||
