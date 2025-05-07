@@ -1,5 +1,5 @@
 const nodemailer = require("nodemailer");
-const twilio = require("twilio");
+// const twilio = require("twilio");
 
 // ✅ Email
 const sendEmail = async (to, subject, html) => {
@@ -21,16 +21,16 @@ const sendEmail = async (to, subject, html) => {
 };
 
 // ✅ SMS
-const sendSMS = async (to, message) => {
-  const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH);
-  await client.messages.create({
-    body: message,
-    from: process.env.TWILIO_PHONE,
-    to,
-  });
-};
+// const sendSMS = async (to, message) => {
+//   const client = twilio(process.env.TWILIO_SID, process.env.TWILIO_AUTH);
+//   await client.messages.create({
+//     body: message,
+//     from: process.env.TWILIO_PHONE,
+//     to,
+//   });
+// };
 
 module.exports = {
   sendEmail,
-  sendSMS,
+  // sendSMS,
 };
