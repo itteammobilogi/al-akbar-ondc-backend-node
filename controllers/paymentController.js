@@ -402,11 +402,9 @@ exports.handleWebhook = async (req, res) => {
   const signature = req.headers["x-razorpay-signature"];
   const bodyBuf = req.body; // raw Buffer from express.raw()
 
-  // Debug: log headers and first bytes of body
-  console.log("🔥 Headers Received:", req.headers);
-  console.log("🔥 Body Buffer (first 100 bytes):", bodyBuf.slice(0, 100));
+  console.log("Headers Received:", req.headers);
 
-  // Compute expected HMAC using raw buffer
+  // 1. Validate webhook signature
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(bodyBuf)
@@ -414,22 +412,20 @@ exports.handleWebhook = async (req, res) => {
 
   if (signature !== expectedSignature) {
     console.error("❌ Invalid webhook signature");
-    console.log("Received Signature:", signature);
-    console.log("Expected Signature:", expectedSignature);
     return res.status(400).json({ success: false, error: "Invalid signature" });
   }
 
-  // Parse the JSON once signature is verified
+  // 2. Parse payload
   let payload;
   try {
     payload = JSON.parse(bodyBuf.toString("utf8"));
   } catch (err) {
-    console.error("❌ Error parsing JSON:", err);
+    console.error(" Error parsing JSON:", err);
     return res.status(400).json({ success: false, error: "Invalid JSON" });
   }
 
   const event = payload.event;
-  console.log(`📥 Event: ${event}`);
+  console.log(` Event: ${event}`);
 
   const entity =
     payload.payload?.payment?.entity ||
@@ -440,9 +436,9 @@ exports.handleWebhook = async (req, res) => {
   const userId = entity?.notes?.userId || null;
 
   try {
-    // 1. Log to your webhook table
+    // 3. Log the webhook payload
     await db.query(
-      `INSERT INTO razorpay_webhook_logs
+      `INSERT INTO razorpay_webhook_logs 
          (userId, payment_id, razorpay_order_id, orderId, amount, currency, status, full_payload)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -457,82 +453,69 @@ exports.handleWebhook = async (req, res) => {
       ]
     );
 
-    // 2. Handle specific events
-    switch (event) {
-      case "payment.captured":
-        if (internalOrderId) {
-          await db.query(
-            `UPDATE orders
-               SET paymentStatus = 'paid',
-                   razorpay_payment_id = ?
-             WHERE id = ?`,
-            [entity.id, internalOrderId]
-          );
-          console.log(`✅ Order ${internalOrderId} marked as PAID`);
-        }
-        if (userId) {
-          const [rows] = await db.query(
-            `SELECT email, phone, name FROM users WHERE id = ?`,
-            [userId]
-          );
-          if (rows.length) {
-            const user = rows[0];
-            await sendEmail(
-              user.email,
-              "Payment Successful!",
-              `<p>Hi ${user.name}, your payment of ₹${
-                entity.amount / 100
-              } was successful.</p>`
-            );
-            await sendSMS(
-              user.phone,
-              `Hi ${user.name}, your payment of ₹${
-                entity.amount / 100
-              } was successful.`
-            );
-            console.log("📧 Notification sent to user");
-          }
-        }
-        break;
+    // 4. Update order status based on event
+    if (internalOrderId) {
+      let newStatus = null;
 
-      case "payment.failed":
-        if (entity.order_id) {
-          await db.query(
-            `UPDATE orders SET paymentStatus = 'failed' WHERE razorpay_order_id = ?`,
-            [entity.order_id]
-          );
-          console.warn(`⚠️ Payment failed for Order ${entity.order_id}`);
-        }
-        break;
+      switch (event) {
+        case "payment.captured":
+          newStatus = "paid";
+          break;
+        case "payment.failed":
+          newStatus = "failed";
+          break;
+        case "payment.authorized":
+          newStatus = "authorized";
+          break;
+        case "refund.created":
+          newStatus = "refunded";
+          break;
+        default:
+          console.log(` Unhandled event type: ${event}`);
+          break;
+      }
 
-      case "payment.authorized":
-        if (entity.order_id) {
-          await db.query(
-            `UPDATE orders SET paymentStatus = 'authorized' WHERE razorpay_order_id = ?`,
-            [entity.order_id]
-          );
-          console.log(`🕒 Payment authorized for Order ${entity.order_id}`);
-        }
-        break;
-
-      case "refund.created":
-        if (entity.order_id) {
-          await db.query(
-            `UPDATE orders SET paymentStatus = 'refunded' WHERE razorpay_order_id = ?`,
-            [entity.order_id]
-          );
-          console.log(`🔁 Refund processed for Order ${entity.order_id}`);
-        }
-        break;
-
-      default:
-        console.log(`ℹ️ Unhandled event type: ${event}`);
+      if (newStatus) {
+        await db.query(
+          `UPDATE orders 
+             SET paymentStatus = ?, razorpay_payment_id = ? 
+           WHERE id = ?`,
+          [newStatus, entity.id, internalOrderId]
+        );
+        console.log(
+          ` Order ${internalOrderId} marked as ${newStatus.toUpperCase()}`
+        );
+      }
     }
 
-    console.log("✅ Webhook processed successfully");
+    // 5. Send notification on payment success
+    if (event === "payment.captured" && userId) {
+      const [rows] = await db.query(
+        `SELECT email, name FROM users WHERE id = ?`,
+        [userId]
+      );
+      if (rows.length) {
+        const user = rows[0];
+        await sendEmail(
+          user.email,
+          "Payment Successful!",
+          `<p>Hi ${user.name}, your payment of ₹${
+            entity.amount / 100
+          } was successful.</p>`
+        );
+        await sendSMS(
+          user.phone,
+          `Hi ${user.name}, your payment of ₹${
+            entity.amount / 100
+          } was successful.`
+        );
+        console.log(" Notification sent to user");
+      }
+    }
+
     return res.status(200).json({ success: true });
   } catch (err) {
-    console.error("❌ Webhook handling error:", err);
+    console.error(" Webhook handling error:", err);
     return res
       .status(500)
       .json({ success: false, error: "Internal server error" });
