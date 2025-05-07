@@ -503,13 +503,13 @@ exports.handleWebhook = async (req, res) => {
             entity.amount / 100
           } was successful.</p>`
         );
-        await sendSMS(
-          user.phone,
-          `Hi ${user.name}, your payment of ₹${
-            entity.amount / 100
-          } was successful.`
-        );
-        console.log(" Notification sent to user");
+        // await sendSMS(
+        //   user.phone,
+        //   `Hi ${user.name}, your payment of ₹${
+        //     entity.amount / 100
+        //   } was successful.`
+        // );
+        // console.log(" Notification sent to user");
       }
     }
 
