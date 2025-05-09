@@ -1,19 +1,31 @@
 const express = require("express");
 const router = express.Router();
 const productController = require("../controllers/productController");
-const { uploadProduct } = require("../middleware/uploadMiddleware");
 const {
   authenticate,
   authorizeAdmin,
 } = require("../middleware/authMiddleware");
+const { uploadProduct } = require("../middleware/uploadMiddleware");
 // const upload = require("../middleware/uploadMiddleware");
 
 // Create product
+// router.post(
+//   "/create/product",
+//   authenticate,
+//   authorizeAdmin,
+//   uploadProduct.array("images", 10),
+//   productController.createProduct
+// );
+
 router.post(
   "/create/product",
   authenticate,
   authorizeAdmin,
-  uploadProduct.array("images", 10), // for multiple uploads
+  // uploadProduct.fields([
+  //   { name: "images", maxCount: 10 },
+  //   { name: "variantImages", maxCount: 20 },
+  // ]),
+  uploadProduct,
   productController.createProduct
 );
 
@@ -29,7 +41,8 @@ router.put(
   "/update/product/:id",
   authenticate,
   authorizeAdmin,
-  uploadProduct.array("images", 10),
+  // uploadProduct.array("images", 10),
+  uploadProduct,
   productController.updateProduct
 );
 

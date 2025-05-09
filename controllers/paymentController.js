@@ -113,6 +113,78 @@ const razorpay = new Razorpay({
 //   }
 // };
 
+// exports.createRazorpayOrder = async (req, res) => {
+//   const userId = req.user?.id || null;
+//   const {
+//     amount,
+//     currency = "INR",
+//     receipt = `receipt_${Date.now()}`,
+//     totalDiscountAmount = 0,
+//     shippingCharge = 0,
+//     couponCode = "",
+//   } = req.body;
+
+//   const rupees = parseFloat(amount);
+//   if (isNaN(rupees) || rupees <= 0) {
+//     return res.status(400).json({ error: "Invalid or missing amount" });
+//   }
+
+//   const paise = Math.round(rupees * 100);
+
+//   const options = {
+//     amount: paise,
+//     currency,
+//     receipt,
+//     payment_capture: 1,
+//     notes: {
+//       userId,
+//       orderId: req.body.orderId,
+//       discount: totalDiscountAmount,
+//       shipping: shippingCharge,
+//       coupon: couponCode,
+//     },
+//   };
+
+//   try {
+//     const order = await razorpay.orders.create(options);
+
+//     const values = [
+//       order.id,
+//       order.amount,
+//       order.currency,
+//       order.receipt,
+//       order.status,
+//       userId,
+//       totalDiscountAmount,
+//       shippingCharge,
+//       couponCode,
+//     ];
+
+//     await db.query(
+//       `
+//       INSERT INTO razorpay_order_logs
+//       (razorpayOrderId, amount, currency, receipt, status, userId, discount, shipping, couponCode, logType)
+//       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'create')`,
+//       values
+//     );
+
+//     await db.query(
+//       `
+//       INSERT INTO razorpay_orders
+//       (razorpayOrderId, amount, currency, receipt, status, userId, discount, shipping, couponCode)
+//       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//       values
+//     );
+
+//     return res.status(201).json({ message: "Razorpay order created", order });
+//   } catch (err) {
+//     console.error("🔥 Razorpay order error:", err);
+//     return res
+//       .status(500)
+//       .json({ error: err.error?.description || err.message });
+//   }
+// };
+
 exports.createRazorpayOrder = async (req, res) => {
   const userId = req.user?.id || null;
   const {
@@ -122,6 +194,7 @@ exports.createRazorpayOrder = async (req, res) => {
     totalDiscountAmount = 0,
     shippingCharge = 0,
     couponCode = "",
+    orderId, // 👈 Make sure this is passed from frontend
   } = req.body;
 
   const rupees = parseFloat(amount);
@@ -138,6 +211,7 @@ exports.createRazorpayOrder = async (req, res) => {
     payment_capture: 1,
     notes: {
       userId,
+      orderId, // 👈 Pass internal order ID into notes
       discount: totalDiscountAmount,
       shipping: shippingCharge,
       coupon: couponCode,
@@ -174,6 +248,14 @@ exports.createRazorpayOrder = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       values
     );
+
+    // ✅ THIS IS THE KEY UPDATE TO LINK razorpayOrderId TO YOUR `orders` TABLE
+    if (orderId) {
+      await db.query(`UPDATE orders SET razorpay_order_id = ? WHERE id = ?`, [
+        order.id,
+        orderId,
+      ]);
+    }
 
     return res.status(201).json({ message: "Razorpay order created", order });
   } catch (err) {
@@ -255,6 +337,7 @@ exports.verifyRazorpaySignature = async (req, res) => {
     orderId,
     items_json,
   } = req.body;
+  console.log(" Received payload at /verify:", req.body);
 
   const userId = req.user?.id;
   const secret = process.env.RAZORPAY_KEY_SECRET;
@@ -395,7 +478,8 @@ exports.verifyRazorpaySignature = async (req, res) => {
 // ===============================
 // @desc    Handle COD Orders
 // @route   POST /api/payment/cod
-// ===============================
+// ==============================
+// =
 
 exports.handleWebhook = async (req, res) => {
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -411,7 +495,7 @@ exports.handleWebhook = async (req, res) => {
     .digest("hex");
 
   if (signature !== expectedSignature) {
-    console.error("❌ Invalid webhook signature");
+    console.error(" Invalid webhook signature");
     return res.status(400).json({ success: false, error: "Invalid signature" });
   }
 

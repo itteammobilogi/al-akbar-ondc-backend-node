@@ -56,7 +56,9 @@ exports.addToCart = async (req, res) => {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    const price = parseFloat(product.discountPrice || product.price);
+    // const price = parseFloat(product.discountPrice || product.price);
+    const price = parseFloat(product.price); // always use original price
+
     const totalAmount = price * quantity;
 
     // Step 2: Add to cart
